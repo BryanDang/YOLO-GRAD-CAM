@@ -1,6 +1,6 @@
 """Segmentation task implementation."""
 
-from typing import Dict, Any, Optional, Callable, Tuple
+from typing import Dict, Any, Optional, Callable, Tuple, List
 import numpy as np
 import torch
 from pathlib import Path
