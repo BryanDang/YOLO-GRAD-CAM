@@ -26,29 +26,16 @@ from .core.config import YoloCAMConfig
 from .core.registry import YOLOModelRegistry, TaskRegistry
 
 # Model imports
-from .models import (
-    BaseYOLOModel,
-    YOLOv8Model,
-    detect_model_version,
-)
+from .models import BaseYOLOModel, YOLOv8Model, detect_model_version
 
 # Task imports  
-from .tasks import (
-    BaseTask,
-    DetectionTask,
-    SegmentationTask,
-    ClassificationTask,
-)
+from .tasks import BaseTask, SegmentationTask
 
 # CAM imports
-from .cam import (
-    GradCAMWrapper,
-    EigenCAMWrapper,
-)
+from .cam import GradCAMWrapper
 
 # Utility imports
 from .utils.logging import setup_logging
-from .utils.validation import validate_model_path, validate_image_path
 
 __all__ = [
     # Core classes
@@ -68,18 +55,13 @@ __all__ = [
     "detect_model_version",
     
     # Task implementations
-    "DetectionTask", 
     "SegmentationTask",
-    "ClassificationTask",
     
     # CAM implementations
     "GradCAMWrapper",
-    "EigenCAMWrapper",
     
     # Utilities
     "setup_logging",
-    "validate_model_path",
-    "validate_image_path",
     
     # Metadata
     "__version__",
