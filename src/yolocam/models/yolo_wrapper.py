@@ -129,26 +129,50 @@ class YOLOv8Model(BaseYOLOModel):
     
     def detect_task(self) -> str:
         """Auto-detect task from Ultralytics model."""
-        # Try to detect from model attributes first
-        if hasattr(self._yolo_model, 'task'):
-            return self._yolo_model.task
-            
-        # Fallback to filename detection
+        # First try filename detection (doesn't require loading model)
         model_name = str(self.model_path).lower()
         
         if 'seg' in model_name:
-            return 'segment'  # Ultralytics uses 'segment' not 'segmentation'
+            return 'segmentation'  # Keep consistent with our task names
         elif 'cls' in model_name:
-            return 'classify'
+            return 'classification'
         elif 'pose' in model_name:
             return 'pose'
         else:
-            return 'detect'
+            # If can't detect from filename, load model to check
+            if not hasattr(self, '_yolo_model'):
+                # Temporarily load just to detect task
+                try:
+                    from ultralytics import YOLO
+                    temp_model = YOLO(self.model_path)
+                    task = getattr(temp_model, 'task', 'detection')
+                    # Map Ultralytics task names to our names
+                    task_map = {
+                        'segment': 'segmentation',
+                        'classify': 'classification',
+                        'detect': 'detection'
+                    }
+                    return task_map.get(task, task)
+                except:
+                    return 'detection'  # Default fallback
+                    
+            # If model already loaded
+            if hasattr(self, '_yolo_model') and hasattr(self._yolo_model, 'task'):
+                task = self._yolo_model.task
+                # Map Ultralytics task names to our names
+                task_map = {
+                    'segment': 'segmentation',
+                    'classify': 'classification',
+                    'detect': 'detection'
+                }
+                return task_map.get(task, task)
+                
+            return 'detection'
     
     @property
     def supported_tasks(self) -> List[str]:
         """YOLOv8 supports all major tasks."""
-        return ['detect', 'segment', 'classify', 'pose']
+        return ['detection', 'segmentation', 'classification', 'pose']
     
     @property
     def version(self) -> str:
