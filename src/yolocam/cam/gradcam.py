@@ -184,11 +184,17 @@ class ManualGradCAM:
         # Clone input tensor to avoid inference mode issues
         input_tensor = input_tensor.clone().detach().requires_grad_(True)
         
+        # Ensure the model is properly set for gradient computation
+        # This is crucial for YOLO models which may be in inference mode
+        for param in self.model.parameters():
+            param.requires_grad = True
+        
         # Disable inference mode and enable gradients
         with torch.inference_mode(False):
             with torch.set_grad_enabled(True):
-                # Forward pass
-                self.model.eval()  # Keep in eval mode but with gradients
+                # Set model to train mode to ensure gradients are computed
+                # This is different from eval mode - train mode enables gradient computation
+                self.model.train()
                 
                 # Clear gradients before forward pass
                 self.model.zero_grad()
@@ -215,6 +221,9 @@ class ManualGradCAM:
                 
                 # Backward pass with gradient retention
                 target_score.backward(retain_graph=True)
+        
+        # Restore model to eval mode after gradient computation
+        self.model.eval()
         
         # Generate CAM for each target layer
         cam_per_layer = []
