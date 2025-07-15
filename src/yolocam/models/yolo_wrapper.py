@@ -99,38 +99,32 @@ class YOLOv8Model(BaseYOLOModel):
         return self._yolo_model
     
     def preprocess_input(self, image_path: str) -> torch.Tensor:
-        """Preprocess image using Ultralytics preprocessing."""
-        # Use Ultralytics built-in preprocessing for consistency
-        yolo_model = self.get_inference_model()
-        
-        # Load and preprocess image
+        """Preprocess image for Grad-CAM analysis."""
         from PIL import Image
+        import torchvision.transforms as T
+        from torchvision.transforms import functional as F
         import numpy as np
         
+        # Load image
         image = Image.open(image_path).convert('RGB')
         
-        # Convert to numpy array
-        image_np = np.array(image)
+        # Get original dimensions
+        orig_w, orig_h = image.size
         
-        # Use YOLO's preprocessing (letterbox, normalization, etc.)
-        # This ensures consistency with how the model was trained
-        results = yolo_model(image_np, verbose=False)
+        # YOLO uses letterbox preprocessing - we'll do a simplified version
+        # For Grad-CAM, we can use standard resizing as the CAM will be resized anyway
+        target_size = self.config.model_input_size
         
-        # Get the preprocessed tensor from the results
-        # The input tensor is stored in results[0].orig_img after preprocessing
-        if hasattr(results[0], 'ims'):
-            # Get preprocessed tensor
-            tensor = results[0].ims.to(self.device)
-            return tensor
-        else:
-            # Fallback to manual preprocessing
-            import torchvision.transforms as T
-            transform = T.Compose([
-                T.Resize((self.config.model_input_size, self.config.model_input_size)),
-                T.ToTensor(),
-            ])
-            tensor = transform(image)
-            return tensor.unsqueeze(0).to(self.device)
+        # Resize image to model input size
+        image = F.resize(image, (target_size, target_size))
+        
+        # Convert to tensor and normalize (YOLO expects 0-1 range)
+        tensor = F.to_tensor(image)
+        
+        # Add batch dimension
+        tensor = tensor.unsqueeze(0).to(self.device)
+        
+        return tensor
     
     def detect_task(self) -> str:
         """Auto-detect task from Ultralytics model."""

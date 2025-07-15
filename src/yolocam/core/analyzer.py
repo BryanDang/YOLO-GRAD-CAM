@@ -246,9 +246,11 @@ class YoloCAMAnalyzer:
         # Preprocess input
         input_tensor = self.model_handler.preprocess_input(image_path)
         
-        # Generate CAM
+        # Generate CAM with the task-specific target function
         cam_output = self.cam_wrapper.generate_cam(
-            input_tensor, target_class=target_class, **kwargs
+            input_tensor, 
+            target_function=self.cam_target_function,
+            **kwargs
         )
         
         # Save raw CAM if configured
@@ -256,6 +258,55 @@ class YoloCAMAnalyzer:
             self._save_raw_cam(cam_output, image_path)
         
         return cam_output
+    
+    def analyze_single_image(self, 
+                           image_path: str, 
+                           mask_path: Optional[str] = None,
+                           visualize: bool = True) -> Dict[str, Any]:
+        """Analyze a single image with optional ground truth mask.
+        
+        Args:
+            image_path: Path to input image
+            mask_path: Optional path to ground truth mask
+            visualize: Whether to create visualization
+            
+        Returns:
+            Dictionary with analysis results including CAM output
+        """
+        self.logger.debug(f"Analyzing single image: {image_path}")
+        
+        # Validate image
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image not found: {image_path}")
+        
+        # Get model prediction
+        prediction = self._get_model_prediction(self.model_handler, image_path)
+        
+        # Generate CAM
+        cam_output = self.generate_cam(image_path)
+        
+        result = {
+            'image_path': image_path,
+            'prediction': prediction,
+            'cam_output': cam_output,
+            'filename': Path(image_path).name
+        }
+        
+        # If mask provided, compute performance metric
+        if mask_path and os.path.exists(mask_path):
+            ground_truth = self.task_handler.load_ground_truth(mask_path)
+            score = self.task_handler.compute_performance_metric(prediction, ground_truth)
+            result['ground_truth'] = ground_truth
+            result['score'] = score
+            result['ground_truth_path'] = mask_path
+        
+        # Create visualization if requested
+        if visualize and self.config.save_visualizations:
+            viz_paths = self.visualize_results([result], "single_image", max_images=1)
+            if viz_paths:
+                result['visualization_path'] = viz_paths[0]
+        
+        return result
     
     def visualize_results(self, 
                          image_list: List[Dict[str, Any]],
