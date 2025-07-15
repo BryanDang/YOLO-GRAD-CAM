@@ -38,7 +38,14 @@ class YOLOv8Model(BaseYOLOModel):
         # Important: Do NOT set to eval mode here as it breaks gradients
         # The model will be set to eval mode with gradients enabled in GradCAM
         
-        return pytorch_model.to(self.device)
+        # Ensure the model is on the correct device
+        pytorch_model = pytorch_model.to(self.device)
+        
+        # Enable gradients for all parameters
+        for param in pytorch_model.parameters():
+            param.requires_grad = True
+        
+        return pytorch_model
     
     def get_target_layers(self, component: str = 'backbone') -> List[nn.Module]:
         """Get target layers from Ultralytics model for Grad-CAM hooks.
@@ -126,8 +133,8 @@ class YOLOv8Model(BaseYOLOModel):
         # Add batch dimension
         tensor = tensor.unsqueeze(0).to(self.device)
         
-        # Enable gradients for Grad-CAM
-        tensor = tensor.requires_grad_(True)
+        # Don't set requires_grad here - let the CAM module handle it
+        # This avoids potential issues with inference mode
         
         return tensor
     

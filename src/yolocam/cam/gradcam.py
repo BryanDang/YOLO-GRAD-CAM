@@ -56,18 +56,19 @@ class GradCAMWrapper:
         Returns:
             CAM heatmap as numpy array [B, H, W]
         """
-        # Ensure input tensor requires grad
-        if not input_tensor.requires_grad:
-            input_tensor = input_tensor.requires_grad_(True)
+        # Clone the input tensor to avoid inference mode issues
+        # This is critical for gradient computation
+        input_tensor = input_tensor.clone().detach().requires_grad_(True)
         
         # Use default target if none provided
         if target_function is None:
             target_function = ClassifierOutputTarget(0)
         
-        # Enable gradient computation
-        with torch.set_grad_enabled(True):
-            # Generate CAM
-            cam_output = self.cam(input_tensor, targets=[target_function])
+        # Disable inference mode and enable gradients explicitly
+        with torch.inference_mode(False):
+            with torch.set_grad_enabled(True):
+                # Generate CAM
+                cam_output = self.cam(input_tensor, targets=[target_function])
         
         return cam_output
     
@@ -122,21 +123,26 @@ class ManualGradCAM:
         self.activations.clear()
         self.gradients.clear()
         
-        # Ensure input requires grad
-        if not input_tensor.requires_grad:
-            input_tensor = input_tensor.requires_grad_(True)
+        # Clone input tensor to avoid inference mode issues
+        input_tensor = input_tensor.clone().detach().requires_grad_(True)
         
-        # Forward pass
-        self.model.eval()  # Keep in eval mode but with gradients
-        with torch.set_grad_enabled(True):
-            output = self.model(input_tensor)
-            
-            # Get target score
-            target_score = target_function(output)
-            
-            # Backward pass
-            self.model.zero_grad()
-            target_score.backward(retain_graph=True)
+        # Disable inference mode and enable gradients
+        with torch.inference_mode(False):
+            with torch.set_grad_enabled(True):
+                # Forward pass
+                self.model.eval()  # Keep in eval mode but with gradients
+                
+                # Clear gradients before forward pass
+                self.model.zero_grad()
+                
+                # Forward pass
+                output = self.model(input_tensor)
+                
+                # Get target score
+                target_score = target_function(output)
+                
+                # Backward pass with gradient retention
+                target_score.backward(retain_graph=True)
         
         # Generate CAM for each target layer
         cam_per_layer = []
