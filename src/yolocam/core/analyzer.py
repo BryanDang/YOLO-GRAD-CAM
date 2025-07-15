@@ -144,11 +144,24 @@ class YoloCAMAnalyzer:
         # Store target function for later use
         self.cam_target_function = self.task_handler.create_cam_target_function()
         
-        return GradCAMWrapper(
-            model=self.model_handler.pytorch_model,
-            target_layers=target_layers,
-            device=self.config.device
-        )
+        try:
+            # Try the library version first
+            return GradCAMWrapper(
+                model=self.model_handler.pytorch_model,
+                target_layers=target_layers,
+                device=self.config.device
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to initialize GradCAMWrapper: {e}")
+            self.logger.info("Falling back to manual Grad-CAM implementation")
+            
+            # Use manual implementation as fallback
+            from ..cam.gradcam import ManualGradCAM
+            return ManualGradCAM(
+                model=self.model_handler.pytorch_model,
+                target_layers=target_layers,
+                device=self.config.device
+            )
     
     def _get_target_layers(self) -> List:
         """Get target layers for CAM based on configuration."""
@@ -285,10 +298,38 @@ class YoloCAMAnalyzer:
         # Generate CAM
         cam_output = self.generate_cam(image_path)
         
+        # Create overlay visualization
+        from PIL import Image
+        import numpy as np
+        import matplotlib.cm as cm
+        
+        # Load original image
+        original_image = np.array(Image.open(image_path).convert('RGB'))
+        h, w = original_image.shape[:2]
+        
+        # Resize CAM to match image size
+        if cam_output.shape != (h, w):
+            from scipy.ndimage import zoom
+            zoom_h = h / cam_output.shape[0]
+            zoom_w = w / cam_output.shape[1]
+            cam_resized = zoom(cam_output, (zoom_h, zoom_w))
+        else:
+            cam_resized = cam_output
+        
+        # Create colored heatmap
+        heatmap = cm.jet(cam_resized)[:, :, :3]
+        heatmap = (heatmap * 255).astype(np.uint8)
+        
+        # Create overlay
+        overlay = (self.config.cam_alpha * heatmap + 
+                  (1 - self.config.cam_alpha) * original_image).astype(np.uint8)
+        
         result = {
             'image_path': image_path,
             'prediction': prediction,
             'cam_output': cam_output,
+            'cam': cam_output,  # For backward compatibility
+            'overlay': overlay,
             'filename': Path(image_path).name
         }
         

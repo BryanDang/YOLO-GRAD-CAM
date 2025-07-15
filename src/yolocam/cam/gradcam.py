@@ -35,6 +35,10 @@ class GradCAMWrapper:
         self.target_layers = target_layers
         self.device = device
         
+        # Enable gradients for the model
+        for param in self.model.parameters():
+            param.requires_grad = True
+        
         # Initialize GradCAM
         self.cam = GradCAM(
             model=self.model,
@@ -52,12 +56,18 @@ class GradCAMWrapper:
         Returns:
             CAM heatmap as numpy array [B, H, W]
         """
+        # Ensure input tensor requires grad
+        if not input_tensor.requires_grad:
+            input_tensor = input_tensor.requires_grad_(True)
+        
         # Use default target if none provided
         if target_function is None:
             target_function = ClassifierOutputTarget(0)
         
-        # Generate CAM
-        cam_output = self.cam(input_tensor, targets=[target_function])
+        # Enable gradient computation
+        with torch.set_grad_enabled(True):
+            # Generate CAM
+            cam_output = self.cam(input_tensor, targets=[target_function])
         
         return cam_output
     
@@ -65,6 +75,111 @@ class GradCAMWrapper:
         """Clean up resources."""
         if hasattr(self, 'cam'):
             self.cam.__exit__(None, None, None)
+
+
+class ManualGradCAM:
+    """Manual Grad-CAM implementation for better control over gradients."""
+    
+    def __init__(self, model: nn.Module, target_layers: List[nn.Module], 
+                 device: str = 'cuda'):
+        """Initialize manual Grad-CAM."""
+        self.model = model
+        self.target_layers = target_layers
+        self.device = device
+        
+        # Storage for activations and gradients
+        self.activations = {}
+        self.gradients = {}
+        
+        # Register hooks
+        self.handles = []
+        self._register_hooks()
+        
+        # Enable gradients
+        for param in self.model.parameters():
+            param.requires_grad = True
+    
+    def _register_hooks(self):
+        """Register forward and backward hooks on target layers."""
+        for idx, layer in enumerate(self.target_layers):
+            # Forward hook to capture activations
+            def save_activation(module, input, output, idx=idx):
+                self.activations[idx] = output.detach()
+            
+            # Backward hook to capture gradients
+            def save_gradient(module, grad_input, grad_output, idx=idx):
+                self.gradients[idx] = grad_output[0].detach()
+            
+            handle_forward = layer.register_forward_hook(save_activation)
+            handle_backward = layer.register_backward_hook(save_gradient)
+            
+            self.handles.extend([handle_forward, handle_backward])
+    
+    def generate_cam(self, input_tensor: torch.Tensor, 
+                     target_function: Callable) -> np.ndarray:
+        """Generate CAM using manual implementation."""
+        # Clear previous activations/gradients
+        self.activations.clear()
+        self.gradients.clear()
+        
+        # Ensure input requires grad
+        if not input_tensor.requires_grad:
+            input_tensor = input_tensor.requires_grad_(True)
+        
+        # Forward pass
+        self.model.eval()  # Keep in eval mode but with gradients
+        with torch.set_grad_enabled(True):
+            output = self.model(input_tensor)
+            
+            # Get target score
+            target_score = target_function(output)
+            
+            # Backward pass
+            self.model.zero_grad()
+            target_score.backward(retain_graph=True)
+        
+        # Generate CAM for each target layer
+        cam_per_layer = []
+        
+        for idx in range(len(self.target_layers)):
+            if idx in self.activations and idx in self.gradients:
+                activation = self.activations[idx]
+                gradient = self.gradients[idx]
+                
+                # Global average pooling on gradients
+                weights = gradient.mean(dim=(2, 3), keepdim=True)
+                
+                # Weighted combination of activations
+                cam = (weights * activation).sum(dim=1, keepdim=True)
+                
+                # ReLU
+                cam = torch.relu(cam)
+                
+                # Normalize
+                cam_min = cam.min()
+                cam_max = cam.max()
+                if cam_max > cam_min:
+                    cam = (cam - cam_min) / (cam_max - cam_min)
+                
+                cam_per_layer.append(cam.squeeze().cpu().numpy())
+        
+        # Average CAMs from all layers
+        if cam_per_layer:
+            final_cam = np.mean(cam_per_layer, axis=0)
+        else:
+            # Fallback to zeros
+            final_cam = np.zeros((input_tensor.shape[2], input_tensor.shape[3]))
+        
+        return final_cam
+    
+    def remove_hooks(self):
+        """Remove all hooks."""
+        for handle in self.handles:
+            handle.remove()
+    
+    def __del__(self):
+        """Clean up hooks."""
+        self.remove_hooks()
 
 
 class YOLOCAMTarget:
@@ -113,10 +228,15 @@ class YOLOCAMTarget:
         else:
             seg_output = output
         
+        # Ensure we have a tensor with gradients
+        if not isinstance(seg_output, torch.Tensor):
+            raise ValueError(f"Expected tensor, got {type(seg_output)}")
+        
         # Target specific class or average
-        if self.class_idx is not None:
+        if self.class_idx is not None and seg_output.shape[1] > self.class_idx:
             return seg_output[:, self.class_idx].mean()
         else:
+            # Use mean of all channels
             return seg_output.mean()
     
     def _detection_target(self, output: Any) -> torch.Tensor:
@@ -127,11 +247,20 @@ class YOLOCAMTarget:
         else:
             det_output = output
         
+        # Ensure tensor
+        if not isinstance(det_output, torch.Tensor):
+            raise ValueError(f"Expected tensor, got {type(det_output)}")
+        
         # Target specific box confidence or average
-        if self.box_idx is not None:
-            return det_output[:, self.box_idx, 4]  # Confidence score
+        if det_output.dim() >= 3 and det_output.shape[-1] >= 5:
+            # Standard YOLO output format
+            if self.box_idx is not None and det_output.shape[1] > self.box_idx:
+                return det_output[:, self.box_idx, 4]  # Confidence score
+            else:
+                return det_output[:, :, 4].max()  # Max confidence
         else:
-            return det_output[:, :, 4].max()  # Max confidence
+            # Fallback to mean
+            return det_output.mean()
     
     def _classification_target(self, output: Any) -> torch.Tensor:
         """Target for classification task."""
@@ -140,8 +269,12 @@ class YOLOCAMTarget:
         else:
             cls_output = output
         
+        # Ensure tensor
+        if not isinstance(cls_output, torch.Tensor):
+            raise ValueError(f"Expected tensor, got {type(cls_output)}")
+        
         # Target specific class or max
-        if self.class_idx is not None:
-            return cls_output[:, self.class_idx]
+        if self.class_idx is not None and cls_output.shape[1] > self.class_idx:
+            return cls_output[:, self.class_idx].mean()
         else:
             return cls_output.max()

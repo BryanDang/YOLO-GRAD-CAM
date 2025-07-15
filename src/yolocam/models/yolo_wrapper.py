@@ -34,7 +34,9 @@ class YOLOv8Model(BaseYOLOModel):
         # Get the underlying PyTorch model for Grad-CAM
         # Ultralytics structure: YOLO.model is the PyTorch model
         pytorch_model = self._yolo_model.model
-        pytorch_model.eval()
+        
+        # Important: Do NOT set to eval mode here as it breaks gradients
+        # The model will be set to eval mode with gradients enabled in GradCAM
         
         return pytorch_model.to(self.device)
     
@@ -123,6 +125,9 @@ class YOLOv8Model(BaseYOLOModel):
         
         # Add batch dimension
         tensor = tensor.unsqueeze(0).to(self.device)
+        
+        # Enable gradients for Grad-CAM
+        tensor = tensor.requires_grad_(True)
         
         return tensor
     
