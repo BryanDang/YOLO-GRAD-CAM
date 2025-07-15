@@ -16,16 +16,39 @@ class SegmentationTask(BaseTask):
     
     def compute_performance_metric(self, prediction: Any, ground_truth: Any) -> float:
         """Compute IoU for segmentation."""
-        # Convert to numpy if needed
-        if isinstance(prediction, torch.Tensor):
+        # Handle YOLO Results object
+        if hasattr(prediction, 'masks'):
+            if prediction.masks is None:
+                return 0.0  # No masks detected
+            pred_mask = prediction.masks.data[0].cpu().numpy()
+        elif isinstance(prediction, torch.Tensor):
             pred_mask = prediction.cpu().numpy()
         else:
-            pred_mask = np.array(prediction)
+            try:
+                pred_mask = np.array(prediction)
+            except Exception as e:
+                print(f"Error converting prediction to array: {type(prediction)}, {e}")
+                return 0.0
             
         if isinstance(ground_truth, torch.Tensor):
             gt_mask = ground_truth.cpu().numpy()
         else:
             gt_mask = np.array(ground_truth)
+        
+        # Ensure masks have the same shape
+        if pred_mask.shape != gt_mask.shape:
+            # Resize pred_mask to match gt_mask shape
+            from scipy.ndimage import zoom
+            if pred_mask.ndim == 2:
+                zoom_factors = (gt_mask.shape[0] / pred_mask.shape[0], 
+                              gt_mask.shape[1] / pred_mask.shape[1])
+                pred_mask = zoom(pred_mask, zoom_factors, order=1)
+            elif pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
+                # Remove batch dimension if present
+                pred_mask = pred_mask[0]
+                zoom_factors = (gt_mask.shape[0] / pred_mask.shape[0], 
+                              gt_mask.shape[1] / pred_mask.shape[1])
+                pred_mask = zoom(pred_mask, zoom_factors, order=1)
         
         # Binarize masks
         pred_mask = (pred_mask > self.config.task_configs.get('mask_threshold', 0.5)).astype(float)
@@ -66,12 +89,12 @@ class SegmentationTask(BaseTask):
         # Load mask
         mask = Image.open(gt_path).convert('L')
         
-        # Resize to model input size
-        transform = T.Compose([
-            T.Resize((self.config.model_input_size, self.config.model_input_size)),
-            T.ToTensor(),
-        ])
+        # Get original image size from the mask
+        original_size = mask.size  # (width, height)
         
+        # For now, return the mask tensor without resizing to match prediction size
+        # The mask will be resized when needed during metric computation
+        transform = T.ToTensor()
         return transform(mask)
     
     def get_task_specific_metrics(self) -> Dict[str, Callable]:
@@ -84,16 +107,37 @@ class SegmentationTask(BaseTask):
     
     def _compute_dice(self, prediction: Any, ground_truth: Any) -> float:
         """Compute Dice coefficient."""
-        # Convert to numpy
-        if isinstance(prediction, torch.Tensor):
+        # Handle YOLO Results object
+        if hasattr(prediction, 'masks'):
+            if prediction.masks is None:
+                return 0.0  # No masks detected
+            pred_mask = prediction.masks.data[0].cpu().numpy()
+        elif isinstance(prediction, torch.Tensor):
             pred_mask = prediction.cpu().numpy()
         else:
-            pred_mask = np.array(prediction)
+            try:
+                pred_mask = np.array(prediction)
+            except Exception as e:
+                print(f"Error converting prediction to array: {type(prediction)}, {e}")
+                return 0.0
             
         if isinstance(ground_truth, torch.Tensor):
             gt_mask = ground_truth.cpu().numpy()
         else:
             gt_mask = np.array(ground_truth)
+        
+        # Ensure masks have the same shape
+        if pred_mask.shape != gt_mask.shape:
+            from scipy.ndimage import zoom
+            if pred_mask.ndim == 2:
+                zoom_factors = (gt_mask.shape[0] / pred_mask.shape[0], 
+                              gt_mask.shape[1] / pred_mask.shape[1])
+                pred_mask = zoom(pred_mask, zoom_factors, order=1)
+            elif pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
+                pred_mask = pred_mask[0]
+                zoom_factors = (gt_mask.shape[0] / pred_mask.shape[0], 
+                              gt_mask.shape[1] / pred_mask.shape[1])
+                pred_mask = zoom(pred_mask, zoom_factors, order=1)
         
         # Binarize
         pred_mask = (pred_mask > self.config.task_configs.get('mask_threshold', 0.5))
@@ -105,16 +149,37 @@ class SegmentationTask(BaseTask):
     
     def _compute_pixel_accuracy(self, prediction: Any, ground_truth: Any) -> float:
         """Compute pixel accuracy."""
-        # Convert to numpy
-        if isinstance(prediction, torch.Tensor):
+        # Handle YOLO Results object
+        if hasattr(prediction, 'masks'):
+            if prediction.masks is None:
+                return 0.0  # No masks detected
+            pred_mask = prediction.masks.data[0].cpu().numpy()
+        elif isinstance(prediction, torch.Tensor):
             pred_mask = prediction.cpu().numpy()
         else:
-            pred_mask = np.array(prediction)
+            try:
+                pred_mask = np.array(prediction)
+            except Exception as e:
+                print(f"Error converting prediction to array: {type(prediction)}, {e}")
+                return 0.0
             
         if isinstance(ground_truth, torch.Tensor):
             gt_mask = ground_truth.cpu().numpy()
         else:
             gt_mask = np.array(ground_truth)
+        
+        # Ensure masks have the same shape
+        if pred_mask.shape != gt_mask.shape:
+            from scipy.ndimage import zoom
+            if pred_mask.ndim == 2:
+                zoom_factors = (gt_mask.shape[0] / pred_mask.shape[0], 
+                              gt_mask.shape[1] / pred_mask.shape[1])
+                pred_mask = zoom(pred_mask, zoom_factors, order=1)
+            elif pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
+                pred_mask = pred_mask[0]
+                zoom_factors = (gt_mask.shape[0] / pred_mask.shape[0], 
+                              gt_mask.shape[1] / pred_mask.shape[1])
+                pred_mask = zoom(pred_mask, zoom_factors, order=1)
         
         # Binarize
         pred_mask = (pred_mask > self.config.task_configs.get('mask_threshold', 0.5))
@@ -193,6 +258,13 @@ class SegmentationTask(BaseTask):
             # Extract masks from YOLO results
             if hasattr(prediction, 'masks') and prediction.masks is not None:
                 pred_mask = prediction.masks.data[0].cpu().numpy()
+                # Resize mask to match image size if needed
+                if pred_mask.shape != image.shape[:2]:
+                    from scipy.ndimage import zoom
+                    h, w = image.shape[:2]
+                    zoom_h = h / pred_mask.shape[0]
+                    zoom_w = w / pred_mask.shape[1]
+                    pred_mask = zoom(pred_mask, (zoom_h, zoom_w))
             else:
                 pred_mask = np.zeros_like(image[:,:,0])
             
