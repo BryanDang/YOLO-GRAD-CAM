@@ -134,7 +134,7 @@ class YoloCAMAnalyzer:
                 f"Supported tasks: {supported_tasks}"
             )
     
-    def _initialize_cam(self) -> GradCAMWrapper:
+    def _initialize_cam(self) -> Union[GradCAMWrapper, 'ManualGradCAM']:
         """Initialize CAM wrapper with appropriate settings."""
         self.logger.debug("Initializing Grad-CAM")
         
@@ -144,24 +144,36 @@ class YoloCAMAnalyzer:
         # Store target function for later use
         self.cam_target_function = self.task_handler.create_cam_target_function()
         
-        try:
-            # Try the library version first
-            return GradCAMWrapper(
-                model=self.model_handler.pytorch_model,
-                target_layers=target_layers,
-                device=self.config.device
-            )
-        except Exception as e:
-            self.logger.warning(f"Failed to initialize GradCAMWrapper: {e}")
-            self.logger.info("Falling back to manual Grad-CAM implementation")
-            
-            # Use manual implementation as fallback
+        # For YOLO models, prefer manual implementation due to inference tensor issues
+        use_manual = True  # Force manual implementation for now
+        
+        if use_manual:
+            self.logger.info("Using manual Grad-CAM implementation for YOLO models")
             from ..cam.gradcam import ManualGradCAM
             return ManualGradCAM(
                 model=self.model_handler.pytorch_model,
                 target_layers=target_layers,
                 device=self.config.device
             )
+        else:
+            try:
+                # Try the library version
+                return GradCAMWrapper(
+                    model=self.model_handler.pytorch_model,
+                    target_layers=target_layers,
+                    device=self.config.device
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize GradCAMWrapper: {e}")
+                self.logger.info("Falling back to manual Grad-CAM implementation")
+                
+                # Use manual implementation as fallback
+                from ..cam.gradcam import ManualGradCAM
+                return ManualGradCAM(
+                    model=self.model_handler.pytorch_model,
+                    target_layers=target_layers,
+                    device=self.config.device
+                )
     
     def _get_target_layers(self) -> List:
         """Get target layers for CAM based on configuration."""

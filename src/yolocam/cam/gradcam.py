@@ -13,6 +13,40 @@ except ImportError:
     GRADCAM_AVAILABLE = False
 
 
+class YOLOModelWrapper(nn.Module):
+    """Wrapper to make YOLO models compatible with pytorch-grad-cam."""
+    
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass that ensures gradient-compatible output."""
+        # Clone input to ensure it's not an inference tensor
+        x = x.clone()
+        
+        # Get model output
+        output = self.model(x)
+        
+        # Handle YOLO output format
+        if isinstance(output, (list, tuple)):
+            # For segmentation models, typically [det_output, seg_output]
+            # Use detection output for gradients
+            output = output[0]
+        
+        # Ensure output is a tensor with gradients
+        if not isinstance(output, torch.Tensor):
+            raise ValueError(f"Expected tensor output, got {type(output)}")
+            
+        # For YOLO detection output, extract confidence scores
+        if output.dim() >= 3 and output.shape[-1] >= 5:
+            # Standard YOLO format: [batch, num_boxes, 4+1+num_classes]
+            # Use objectness scores for gradient computation
+            output = output[..., 4:5].mean(dim=1)  # [batch, 1]
+        
+        return output.squeeze(-1)  # Return [batch] tensor
+
+
 class GradCAMWrapper:
     """Wrapper for pytorch-grad-cam library with YOLO-specific adaptations."""
     
@@ -39,10 +73,14 @@ class GradCAMWrapper:
         for param in self.model.parameters():
             param.requires_grad = True
         
-        # Initialize GradCAM
+        # Wrap the model to handle YOLO specifics
+        self.wrapped_model = YOLOModelWrapper(self.model)
+        
+        # Initialize GradCAM with wrapped model
         self.cam = GradCAM(
-            model=self.model,
-            target_layers=self.target_layers
+            model=self.wrapped_model,
+            target_layers=self.target_layers,
+            use_cuda=(device == 'cuda')
         )
     
     def generate_cam(self, input_tensor: torch.Tensor, 
@@ -54,23 +92,43 @@ class GradCAMWrapper:
             target_function: Custom target function for CAM
             
         Returns:
-            CAM heatmap as numpy array [B, H, W]
+            CAM heatmap as numpy array [H, W]
         """
         # Clone the input tensor to avoid inference mode issues
-        # This is critical for gradient computation
-        input_tensor = input_tensor.clone().detach().requires_grad_(True)
+        input_tensor = input_tensor.clone().detach()
         
-        # Use default target if none provided
-        if target_function is None:
-            target_function = ClassifierOutputTarget(0)
+        # Move to correct device
+        input_tensor = input_tensor.to(self.device)
         
-        # Disable inference mode and enable gradients explicitly
-        with torch.inference_mode(False):
-            with torch.set_grad_enabled(True):
-                # Generate CAM
-                cam_output = self.cam(input_tensor, targets=[target_function])
+        # For YOLO models, we don't use target functions from pytorch-grad-cam
+        # Instead, the wrapper handles the output selection
+        targets = None
         
-        return cam_output
+        try:
+            # Generate CAM
+            with torch.no_grad():
+                # The library will handle gradients internally
+                grayscale_cam = self.cam(input_tensor=input_tensor, targets=targets)
+            
+            # Return first image's CAM
+            return grayscale_cam[0]
+            
+        except Exception as e:
+            # If pytorch-grad-cam fails, fall back to manual implementation
+            print(f"Warning: pytorch-grad-cam failed ({e}), using manual implementation")
+            
+            # Use manual implementation
+            manual_cam = ManualGradCAM(self.model, self.target_layers, self.device)
+            
+            # Create a simple target function for manual CAM
+            def manual_target(output):
+                if isinstance(output, (list, tuple)):
+                    output = output[0]
+                if output.dim() >= 3:
+                    return output[..., 4].max()  # Max objectness score
+                return output.mean()
+            
+            return manual_cam.generate_cam(input_tensor, manual_target)
     
     def __del__(self):
         """Clean up resources."""
@@ -117,7 +175,7 @@ class ManualGradCAM:
             self.handles.extend([handle_forward, handle_backward])
     
     def generate_cam(self, input_tensor: torch.Tensor, 
-                     target_function: Callable) -> np.ndarray:
+                     target_function: Optional[Callable] = None) -> np.ndarray:
         """Generate CAM using manual implementation."""
         # Clear previous activations/gradients
         self.activations.clear()
@@ -139,7 +197,21 @@ class ManualGradCAM:
                 output = self.model(input_tensor)
                 
                 # Get target score
-                target_score = target_function(output)
+                if target_function is None:
+                    # Default target for YOLO: use max objectness score
+                    if isinstance(output, (list, tuple)):
+                        output_tensor = output[0]
+                    else:
+                        output_tensor = output
+                    
+                    if output_tensor.dim() >= 3 and output_tensor.shape[-1] >= 5:
+                        # YOLO detection format
+                        target_score = output_tensor[..., 4].max()
+                    else:
+                        # Fallback
+                        target_score = output_tensor.mean()
+                else:
+                    target_score = target_function(output)
                 
                 # Backward pass with gradient retention
                 target_score.backward(retain_graph=True)
