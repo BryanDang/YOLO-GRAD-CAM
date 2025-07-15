@@ -13,6 +13,11 @@ from ..core.registry import register_yolo_model
 class YOLOv8Model(BaseYOLOModel):
     """Wrapper for Ultralytics YOLOv8 models to enable Grad-CAM analysis."""
     
+    def __init__(self, model_path: str, config: 'YoloCAMConfig'):
+        """Initialize YOLOv8 model wrapper."""
+        super().__init__(model_path, config)
+        self._yolo_model = None
+    
     def load_model(self, model_path: str) -> nn.Module:
         """Load YOLOv8 model via Ultralytics and return PyTorch module."""
         try:

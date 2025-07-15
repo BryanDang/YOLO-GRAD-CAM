@@ -136,19 +136,18 @@ class YoloCAMAnalyzer:
     
     def _initialize_cam(self) -> GradCAMWrapper:
         """Initialize CAM wrapper with appropriate settings."""
-        self.logger.debug(f"Initializing CAM with method: {self.config.cam_method}")
+        self.logger.debug("Initializing Grad-CAM")
         
         # Get target layers based on configuration
         target_layers = self._get_target_layers()
         
-        # Create CAM target function
-        target_function = self.task_handler.create_cam_target_function()
+        # Store target function for later use
+        self.cam_target_function = self.task_handler.create_cam_target_function()
         
         return GradCAMWrapper(
             model=self.model_handler.pytorch_model,
             target_layers=target_layers,
-            target_function=target_function,
-            config=self.config
+            device=self.config.device
         )
     
     def _get_target_layers(self) -> List:
@@ -406,7 +405,7 @@ class YoloCAMAnalyzer:
         return {
             'model': self.model_handler.get_model_info(),
             'task': self.task_handler.get_task_info(),
-            'cam_method': self.config.cam_method,
+            'cam_method': 'gradcam',
             'target_component': self.config.target_layer_component,
             'output_dir': str(self.output_dir),
             'config': self.config.to_dict(),

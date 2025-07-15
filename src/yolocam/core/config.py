@@ -23,7 +23,6 @@ class YoloCAMConfig:
     max_detections: int = 300
     
     # CAM settings
-    cam_method: str = 'gradcam'  # 'gradcam', 'eigencam', 'gradcam++'
     target_layer_component: str = 'backbone'  # 'backbone', 'neck', 'head', 'auto'
     custom_target_layers: Optional[List[str]] = None
     cam_alpha: float = 0.6  # Overlay transparency
@@ -78,10 +77,6 @@ class YoloCAMConfig:
         if self.device not in valid_devices:
             raise ValueError(f"Invalid device: {self.device}. Must be one of {valid_devices}")
         
-        # CAM method validation
-        valid_cam_methods = ['gradcam', 'eigencam', 'gradcam++']
-        if self.cam_method not in valid_cam_methods:
-            raise ValueError(f"Invalid CAM method: {self.cam_method}. Must be one of {valid_cam_methods}")
         
         # Target layer component validation
         valid_components = ['backbone', 'neck', 'head', 'auto']
@@ -267,7 +262,7 @@ class YoloCAMConfig:
     
     def __repr__(self) -> str:
         """String representation of configuration."""
-        return f"YoloCAMConfig(device={self.device}, cam_method={self.cam_method}, model_input_size={self.model_input_size})"
+        return f"YoloCAMConfig(device={self.device}, model_input_size={self.model_input_size})"
 
 
 def load_default_config() -> YoloCAMConfig:
