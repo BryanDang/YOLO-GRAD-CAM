@@ -1,0 +1,196 @@
+[build-system]
+requires = ["hatchling>=1.21.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yolocam"
+dynamic = ["version"]
+description = "A comprehensive library for YOLO model analysis using Grad-CAM and other explainable AI techniques"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "YoloCAM Contributors", email = "yolocam@example.com"},
+]
+maintainers = [
+    {name = "YoloCAM Contributors", email = "yolocam@example.com"},
+]
+keywords = ["yolo", "grad-cam", "computer-vision", "explainable-ai", "object-detection", "segmentation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=1.12.0",
+    "torchvision>=0.13.0",
+    "ultralytics>=8.0.0",
+    "grad-cam>=1.4.0",
+    "opencv-python-headless>=4.5.0",
+    "numpy>=1.21.0",
+    "matplotlib>=3.5.0",
+    "Pillow>=8.3.0",
+    "PyYAML>=6.0",
+    "tqdm>=4.64.0",
+    "packaging>=21.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+    "twine>=4.0.0",
+    "build>=0.10.0",
+]
+docs = [
+    "sphinx>=5.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+    "sphinx-autodoc-typehints>=1.19.0",
+    "myst-parser>=0.18.0",
+]
+examples = [
+    "jupyter>=1.0.0",
+    "ipykernel>=6.0.0",
+    "seaborn>=0.11.0",
+]
+all = [
+    "yolocam[dev,docs,examples]",
+]
+
+[project.urls]
+Homepage = "https://github.com/BryanDang/YOLO-GRAD-CAM"
+Documentation = "https://yolocam.readthedocs.io"
+Repository = "https://github.com/BryanDang/YOLO-GRAD-CAM.git"
+"Bug Tracker" = "https://github.com/BryanDang/YOLO-GRAD-CAM/issues"
+Changelog = "https://github.com/BryanDang/YOLO-GRAD-CAM/blob/main/CHANGELOG.md"
+
+[project.scripts]
+yolocam = "yolocam.cli:main"
+
+[tool.hatch.version]
+path = "src/yolocam/__init__.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/examples",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yolocam"]
+
+# Black code formatting
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+# isort import sorting
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["yolocam"]
+known_third_party = ["torch", "torchvision", "ultralytics", "pytorch_grad_cam", "cv2", "numpy", "matplotlib"]
+
+# pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=yolocam",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# mypy type checking
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2.*",
+    "pytorch_grad_cam.*",
+    "ultralytics.*",
+]
+ignore_missing_imports = true
+
+# Coverage configuration
+[tool.coverage.run]
+source = ["src/yolocam"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__init__.py",
+    "*/cli/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
