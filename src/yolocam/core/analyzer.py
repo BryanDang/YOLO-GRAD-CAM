@@ -280,7 +280,7 @@ class YoloCAMAnalyzer:
             raise FileNotFoundError(f"Image not found: {image_path}")
         
         # Get model prediction
-        prediction = self._get_model_prediction(self.model_handler, image_path)
+        prediction = self.task_handler._get_model_prediction(self.model_handler, image_path)
         
         # Generate CAM
         cam_output = self.generate_cam(image_path)
