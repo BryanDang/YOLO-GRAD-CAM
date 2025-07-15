@@ -163,11 +163,28 @@ class ManualGradCAM:
         for idx, layer in enumerate(self.target_layers):
             # Forward hook to capture activations
             def save_activation(module, input, output, idx=idx):
-                self.activations[idx] = output.detach()
+                # Handle different output types
+                if isinstance(output, torch.Tensor):
+                    self.activations[idx] = output.detach()
+                elif isinstance(output, (list, tuple)):
+                    # Find the first tensor in the output
+                    for item in output:
+                        if isinstance(item, torch.Tensor):
+                            self.activations[idx] = item.detach()
+                            break
             
             # Backward hook to capture gradients
             def save_gradient(module, grad_input, grad_output, idx=idx):
-                self.gradients[idx] = grad_output[0].detach()
+                # Handle different gradient types
+                if grad_output and len(grad_output) > 0:
+                    if isinstance(grad_output[0], torch.Tensor):
+                        self.gradients[idx] = grad_output[0].detach()
+                    elif grad_output[0] is not None:
+                        # Try to find a tensor in the grad_output
+                        for grad in grad_output:
+                            if isinstance(grad, torch.Tensor):
+                                self.gradients[idx] = grad.detach()
+                                break
             
             handle_forward = layer.register_forward_hook(save_activation)
             handle_backward = layer.register_backward_hook(save_gradient)
@@ -210,11 +227,22 @@ class ManualGradCAM:
                     else:
                         output_tensor = output
                     
+                    # Ensure we have a tensor for gradient computation
+                    if not isinstance(output_tensor, torch.Tensor):
+                        # If we still don't have a tensor, try to find one in the output
+                        for item in (output if isinstance(output, (list, tuple)) else [output]):
+                            if isinstance(item, torch.Tensor):
+                                output_tensor = item
+                                break
+                        else:
+                            # Last resort: create a dummy tensor with requires_grad
+                            output_tensor = torch.tensor(1.0, requires_grad=True, device=input_tensor.device)
+                    
                     if output_tensor.dim() >= 3 and output_tensor.shape[-1] >= 5:
                         # YOLO detection format
                         target_score = output_tensor[..., 4].max()
                     else:
-                        # Fallback
+                        # Fallback - use mean for any tensor
                         target_score = output_tensor.mean()
                 else:
                     target_score = target_function(output)

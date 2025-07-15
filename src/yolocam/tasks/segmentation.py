@@ -308,8 +308,23 @@ class SegmentationTask(BaseTask):
         
         # Convert to numpy array
         fig.canvas.draw()
-        buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+        
+        # Handle matplotlib version compatibility
+        try:
+            # New matplotlib versions (3.3+)
+            buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
+            buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (4,))
+            buf = buf[:, :, :3]  # Remove alpha channel
+        except AttributeError:
+            try:
+                # Older matplotlib versions
+                buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+                buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            except AttributeError:
+                # Fallback method using renderer
+                renderer = fig.canvas.get_renderer()
+                buf = np.frombuffer(renderer.tostring_rgb(), dtype=np.uint8)
+                buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
         
         plt.close(fig)
         return buf
