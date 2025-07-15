@@ -38,8 +38,7 @@ class GradCAMWrapper:
         # Initialize GradCAM
         self.cam = GradCAM(
             model=self.model,
-            target_layers=self.target_layers,
-            use_cuda=self.device == 'cuda'
+            target_layers=self.target_layers
         )
     
     def generate_cam(self, input_tensor: torch.Tensor, 
